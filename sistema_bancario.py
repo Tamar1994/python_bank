@@ -1,6 +1,17 @@
-import os
 import time
 import pandas as pd
+import os
+from supabase import create_client
+from dotenv import load_dotenv
+import json
+from datetime import datetime
+
+load_dotenv()
+
+url = os.environ.get("SUPABASE_URL")
+key = os.environ.get("SUPABASE_SECRET_KEY")
+supabase = create_client(url, key)
+
 
 class Usuarios:
     def __init__(self, cpf, usuario, senha, saldo):
@@ -27,26 +38,33 @@ def CriarUsuario():
     print("-----------------------------------------------------------------")
     print("")
 
-    validar_documento = 0
     documento = input("Digite seu CPF: ")
+    time.sleep(1)
 
-    for i in lista_usuarios:
+    buscadados = supabase.table('tb_usuarios').select("*").filter('cpf','eq', documento).execute().data
 
-        if i.cpf == documento:
-            validar_documento = 1
-    
-    if validar_documento == 0:
+    if len(buscadados) < 1:
 
         nome = input("Digite seu nome: ")
         senha = input("Cadastre sua senha: ")
         saldo = 0.00
 
-        novo_usuario = Usuarios(documento, nome, senha, saldo)
+        user_cad = []
 
-        lista_usuarios.append(novo_usuario)
+        novo_usuario = {"nome": nome, "cpf": documento, "senha": senha, "saldo": saldo}
 
-        print("Usuário cadastrado com sucesso!")
+        user_cad.append(novo_usuario)
 
+        #lista_usuarios.append(novo_usuario)
+
+        try:
+
+            data = json.loads(supabase.table('tb_usuarios').insert(user_cad).execute())
+
+        except json.decoder.JSONDecodeError:
+            print("Usuário cadastrado com sucesso!")
+
+        
         time.sleep(3)
 
         InicioSoftware()
@@ -71,7 +89,9 @@ def RealizarLogin():
     print("-----------------------------------------------------------------")
     print("")
 
-    if len(lista_usuarios) < 1:
+    listaUsuarios = supabase.table('tb_usuarios').select("id").execute().data
+
+    if len(listaUsuarios) < 1:
 
         print("Não existe nenhum usuário cadastrado no banco de dados.")
         print("Cadastre novos usuários para utilizar o sistema")
@@ -82,15 +102,10 @@ def RealizarLogin():
 
     documento = input("Digite o documento: ")
 
-    for i in lista_usuarios:
-        if i.cpf == documento:
+    retornoUsuario = supabase.table("tb_usuarios").select("*").filter("cpf", "eq", documento).execute().data
 
-            user_usuario = i.usuario
-            user_senha = i.senha
-            validar_login = 1
+    if len(retornoUsuario) < 1:
     
-    if validar_login == 0:
-
         print("Usuário não foi cadastrado no sistema!")
         print("Realize primeiramente o cadastro para ter acesso ao sistema!")
 
@@ -102,10 +117,10 @@ def RealizarLogin():
 
         senha = input("Digite sua senha: ")
 
-        if user_senha == senha:
+        if retornoUsuario[0]["senha"] == senha:
 
             print("Usuário foi validado no sistema!")
-            print(f"Bem-Vindo {user_usuario}!")
+            print(f"Bem-Vindo {retornoUsuario[0]['nome']}!")
             
             time.sleep(3)
 
@@ -121,57 +136,101 @@ def RealizarLogin():
 
 def RealizarDeposito(cpf, valor):
 
-    for i in lista_usuarios:
-        if i.cpf == cpf:
+    saldoAtual = supabase.table('tb_usuarios').select('saldo').filter('cpf', 'eq', cpf).execute().data
 
-            i.saldo = i.saldo + valor
+    saldoAtual2 = float(saldoAtual[0]["saldo"])
 
-            movimentacao = Movimentacoes(cpf, "Deposito", valor)
-            lista_movimentacoes.append(movimentacao)
+    novoSaldo = saldoAtual2 + valor
+
+    data_hora_atual = datetime.now()
+    data_hora_atual_texto = data_hora_atual.strftime("%d/%m/%Y %H:%M")
+
+
+    try:
+
+        data = supabase.table("tb_usuarios").update({"saldo": novoSaldo}).filter('cpf', 'eq', cpf).execute()
+
+    except json.decoder.JSONDecodeError:
+        
+        print("")
+    
+    try:
+
+        data2 = supabase.table("tb_movimentacoes").insert({"data_movimentacao": data_hora_atual_texto, "cpf_movimentacao": cpf, "tipo_movimentacao": "Depósito", "valor": valor}).execute()
+
+    except json.decoder.JSONDecodeError:
+        
+        print("")
+
+    
 
 def RealizarSaque(cpf, valor):
 
-    for i in lista_usuarios:
-        if i.cpf == cpf:
-            i.saldo = i.saldo - valor
+    saldoAtual = supabase.table('tb_usuarios').select('saldo').filter('cpf', 'eq', cpf).execute().data
+    saldoAtual2 = float(saldoAtual[0]["saldo"])
+    novoSaldo = saldoAtual2 - valor
 
-            movimentacao = Movimentacoes(cpf, "Saque", valor)
-            lista_movimentacoes.append(movimentacao)
+    data_hora_atual = datetime.now()
+    data_hora_atual_texto = data_hora_atual.strftime("%d/%m/%Y %H:%M")
+
+    try:
+
+        supabase.table("tb_usuarios").update({"saldo": novoSaldo}).filter('cpf', 'eq', cpf).execute()
+
+    except json.decoder.JSONDecodeError:
+        
+        print("")
+    
+    try:
+        supabase.table("tb_movimentacoes").insert({"data_movimentacao": data_hora_atual_texto, "cpf_movimentacao": cpf, "tipo_movimentacao": "Saque", "valor": valor}).execute()
+    except json.decoder.JSONDecodeError:
+        print("")
 
 def RealizarTransferencia(cpf, cpf_destino, valor):
 
-    for i in lista_usuarios:
-        if i.cpf == cpf:
+    userOrigem = supabase.table("tb_usuarios").select("nome, saldo").filter("cpf", 'eq', cpf).execute().data
+    userDestino = supabase.table("tb_usuarios").select("nome, saldo").filter("cpf", 'eq', cpf_destino).execute().data
 
-            i.saldo = i.saldo - valor
+    novoSaldoOrigem = userOrigem[0]["saldo"] - valor
+    novoSaldoDestino = userDestino[0]["saldo"] + valor
 
-            movimentacao = Movimentacoes(cpf, "Transferencia Enviada", valor)
-            lista_movimentacoes.append(movimentacao)
-        
-        if i.cpf == cpf_destino:
+    data_hora_atual = datetime.now()
+    data_hora_atual_texto = data_hora_atual.strftime("%d/%m/%Y %H:%M")
 
-            i.saldo = i.saldo + valor
-
-            movimentacao = Movimentacoes(cpf_destino, "Transferencia Recebida", valor)
-            lista_movimentacoes.append(movimentacao)
+    try:
+        supabase.table("tb_usuarios").update({"saldo": novoSaldoOrigem}).filter('cpf', 'eq', cpf).execute()
+    except json.decoder.JSONDecodeError:
+        print("")
+    try:
+        supabase.table("tb_usuarios").update({"saldo": novoSaldoDestino}).filter('cpf', 'eq', cpf_destino).execute()
+    except json.decoder.JSONDecodeError:
+        print("")
+    try:
+        supabase.table("tb_movimentacoes").insert({"data_movimentacao": data_hora_atual_texto, "cpf_movimentacao": cpf, "tipo_movimentacao": "Transferencia Enviada", "usuario_destino": cpf_destino, "valor": valor}).execute()
+    except json.decoder.JSONDecodeError:
+        print("")
+    try:
+        supabase.table("tb_movimentacoes").insert({"data_movimentacao": data_hora_atual_texto, "cpf_movimentacao": cpf_destino, "tipo_movimentacao": "Transferencia Recebida", "usuario_origem": cpf, "valor": valor}).execute()
+    except json.decoder.JSONDecodeError:
+        print("")
     
 
 def AlterarSenha(cpf, novasenha):
 
-    for i in lista_usuarios:
-        if i.cpf == cpf:
-            i.senha = novasenha    
+    try:
+        supabase.table("tb_usuarios").update({"senha": novasenha}).filter('cpf', 'eq', cpf).execute()
+    except json.decoder.JSONDecodeError:
+        print("")
 
 def AcessarSistema(cpf):
 
     os.system('cls') or None
 
-    for i in lista_usuarios:
-        if i.cpf == cpf:
+    dadosUser = supabase.table('tb_usuarios').select("*").filter("cpf", "eq", cpf).execute().data
 
-            user_usuario = i.usuario
-            user_saldo = i.saldo
-            user_senha = i.senha
+    user_usuario = dadosUser[0]["nome"]
+    user_saldo = dadosUser[0]["saldo"]
+    user_senha = dadosUser[0]["senha"]
     
     print(f"DIO Python Bank - Bem-vindo {user_usuario}")
     print("-----------------------------------------------------------------")
@@ -283,12 +342,9 @@ def AcessarSistema(cpf):
         documento_destino = input("Insira o documento destino: ")
         valida_documento_destino = 0
 
-        for i in lista_usuarios:
-            if i.cpf == documento_destino:
-                valida_documento_destino = 1
-                destino_usuario = i.usuario
+        userDestino = supabase.table("tb_usuarios").select("nome").filter("cpf", "eq", documento_destino).execute().data
         
-        if valida_documento_destino == 0:
+        if len(userDestino) < 1:
 
             print("Não localizado documento de destino.")
             print("Tente novamente!")
@@ -299,7 +355,7 @@ def AcessarSistema(cpf):
         
         else:
 
-            print(f"Usuário destino: {destino_usuario}")
+            print("Usuário destino: "+ userDestino[0]["nome"])
 
             print("Está correto?")
 
@@ -364,22 +420,52 @@ def AcessarSistema(cpf):
         print("")
         print("")
 
-        extrato_bancario_usuario = []
+        dataMovimentacao = []
         tipo = []
         valor = []
-        n = 1
+
+        dadosMovimentacoes = supabase.table("tb_movimentacoes").select("*").filter("cpf_movimentacao", "eq", cpf).execute().data
         
-        for i in lista_movimentacoes:
-            if i.cpf == cpf:
-                tipo.append(i.tipo_movimentacao)
-                valor.append(i.valor)
+        if len(dadosMovimentacoes) > 0:
+
+            for i in dadosMovimentacoes:
+                
+                dataMovimentacao.append(i["data_movimentacao"])
+
+                if (i["tipo_movimentacao"] == "Transferencia Enviada") or (i["tipo_movimentacao"] == "Transferencia Recebida"):
+                    if (i["usuario_destino"] != None):
+
+                        usuarioDestino = supabase.table("tb_usuarios").select("nome").filter("cpf", "eq", i["usuario_destino"]).execute().data
+
+                        tipoDaMovimentacao = f"{i['tipo_movimentacao']} para {usuarioDestino[0]['nome']}"
+
+                        tipo.append(tipoDaMovimentacao)
+
+                    elif (i["usuario_origem"] != None):
+
+                        usuarioOrigem = supabase.table("tb_usuarios").select("nome").filter("cpf", "eq", i["usuario_origem"]).execute().data
+
+                        tipoDaMovimentacao = f"{i['tipo_movimentacao']} de {usuarioOrigem[0]['nome']}"
+
+                        tipo.append(tipoDaMovimentacao)
+
+                else:
+
+                    tipo.append(i["tipo_movimentacao"])
+
+                valor.append(i["valor"])
+
+
+            
+            tabela = pd.DataFrame((zip(dataMovimentacao, tipo, valor)), columns=["Data da Movimentação", "Tipo Movimentacao", "Valor"])
+
+            tabela.index += 1
+
+            print(tabela)
+
+        else:
+            print("Não foram localizadas movimentações!")
         
-        tabela = pd.DataFrame((zip(tipo, valor)), columns=["Tipo Movimentacao", "Valor"])
-
-        tabela.index += 1
-
-        print(tabela)
-
         print("")
         print("")
 
